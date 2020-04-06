@@ -1,0 +1,202 @@
+function VPoints_Load():
+	set {_config} to "plugins/VPoints/config.yml"
+	if folder "plugins/VPoints" doesn't exists:
+		
+		create folder "plugins/VPoints"
+		
+		create file {_config}
+		
+		wf "##VPoints配置文件" to {_config}
+		wf "##拥有某个权限节点的玩家基础的最大次数" to {_config}
+		wf "##计算方式为:(拥有的节点转化为次数的和)+玩家额外拥有的次数" to {_config}
+		wf "dtimes:" to {_config}
+		wf "- vpoints.default:3" to {_config}
+		wf "- vpoints.vip:6" to {_config}
+		wf "##汇率设定" to {_config}
+		wf "##可以理解为开放兑换的通道" to {_config}
+		wf "##需要的vault数量:可兑换的points数量" to {_config}
+		wf "##左边的数字不能重复 右边随意" to {_config}
+		wf "rates:" to {_config}
+		wf "- 100-1" to {_config}
+		wf "- 1000-10" to {_config}
+		wf "- 5000-51" to {_config}
+		
+	load yml {_config} as "VPoints_config"
+	set {VPoints::value::dtimes::*} to yml list "dtimes" of "VPoints_config"
+	set {VPoints::value::rates::*} to yml list "rates" of "VPoints_config"
+	set {_d} to 0
+	#broadcast "%{VPoints::value::rates::*}%"
+	loop {VPoints::value::rates::*}:
+		add 1 to {_d}
+		set {_c::*} to loop-value split by "-"
+		set {_need} to {_c::1}
+		set {_get} to {_c::2}
+		set {VPoints::value::shop::%{_need}%} to "%{_get}%"
+		set {VPoints::value::shopb::%{_d}%} to "%{_need}%"
+	send "[VPoints] 成功加载 VPoints. 已加载 %{_d}% 项兑换通道" to console
+	send "[VPoints] 定制插件请联系QQ 2773173293" to console
+function VPoints_UnLoad():
+	delete {VPoints::value::*}
+	unload yml "VPoints_config"
+	send "[VPoints] 插件 VPoints 已卸载." to console
+	send "[VPoints] 定制插件请联系QQ 2773173293" to console
+on load:
+	VPoints_Load()
+on unload:
+	VPoints_UnLoad()
+on join:
+	set {_b} to 0
+	loop {VPoints::value::dtimes::*}:
+		set {_a::*} to loop-value split by ":"
+		set {_permission} to {_a::1}
+		set {_c} to {_a::2}
+		set {_c} to {_c} parsed as integer
+		#broadcast "12"
+		if player has permission "%{_permission}%":
+			add {_c} to {_b}
+			#broadcast "13"
+	if {VPoints::ups::%player%::ucount} is not set:
+		set {VPoints::ups::%player%::ucount} to 0
+	set {_pcount} to ({_b} + {VPoints::ups::%player%::ucount})
+	#最大数量
+	set {VPoints::player::%player%::pcount} to {_pcount}
+	if {VPoints::player::%player%::count} is not set:
+		#本日可兑换数量
+		set {VPoints::player::%player%::count} to {_pcount}
+command /vpoints <text=help> [<text>] [<text>]:
+	aliases: vpoint,vp
+	permission: vpoints.use
+	permission message: &c你没有权限使用该指令
+	trigger:
+		if arg 1 is "help":
+			message "&7&l&m-------------&e&l VPoints &7&l&m-------------"
+			message "&8[-] &b/vpoint help &6- 查看帮助"
+			message "&8[-] &b/vpoint shop|s &6- 列出所有兑换通道"
+			message "&8[-] &b/vpoint buy <序号> &6- 进行<序号>通道的兑换"
+			if sender has permission "vpoints.admin":
+				message "&c[-] &b/vpoint add <玩家> <数量> &6- 增加玩家兑换次数的最大上限"
+				message "&c[-] &b/vpoint rem <玩家> <数量> &6- 减少玩家兑换次数的最大上限"
+				message "&c[-] &b/vpoint see <玩家> &6- 查看玩家兑换次数的最大上限与本日次数"
+				message "&c[-] &7基础兑换次数无法减少 玩家自拥有的最大兑换次数不能小于0"
+				message "&c[-] &b/vpoint reload &6- 重载插件"
+				message "&c[-] &b/vpoint reloadplayers &6- 直接更新所有玩家的次数&c(慎重使用)"
+			message "&8[-] &7/vp /vpoints 也是一样的功能"
+			message "&8[-] &a本日剩余兑换次数: &6%{VPoints::player::%player%::count}%/%{VPoints::player::%player%::pcount}%"
+			message "&7&l&m-------------&e&l VPoints &7&l&m-------------"
+			stop
+		else if arg 1 is "shop" or "s":
+			message "&7&l&m-------------&e&l VPoints &7&l&m-------------"
+			loop {VPoints::value::shopb::*}:
+				#broadcast "123"
+				set {_d} to loop-index
+				set {_need} to loop-value
+				set {_get} to {VPoints::value::shop::%{_need}%}
+				message "&e[%{_d}%] 使用 %{_need}% 金币 兑换 %{_get}% 点券"
+			message "&7&l&m-------------&e&l VPoints &7&l&m-------------"
+			stop
+		else if arg 1 is "buy":
+			if arg 2 is set:
+				set {_d} to arg 2
+				if {VPoints::player::%player%::*} is set:
+					if {VPoints::player::%player%::count} > 0:
+						if {VPoints::value::shopb::%{_d}%} is set:
+							set {_need} to {VPoints::value::shopb::%{_d}%} parsed as integer
+							set {_pmoney} to placeholder "vault_eco_balance_fixed" with player parsed as integer
+							if {_pmoney} >= {_need}:
+								set {_get} to {VPoints::value::shop::%{_need}%}
+								remove {_need} from player's money
+								execute console command "/points give %player% %{_get}%"
+								message "&b[VPoints] &a成功消耗 %{_need}% 金币 兑换 %{_get}% 点券"
+								remove 1 from {VPoints::player::%player%::count}
+								stop
+							else:
+								message "&b[VPoints] &a你的余额不足以兑换点券"
+								stop
+						else:
+							message "&b[VPoints] &a不存在的序号"
+							stop
+					else:
+						message "&b[VPoints] &a本日兑换次数已达到上限"
+						stop
+				else:
+					message "&b[VPoints] &a错误的状态 请重新进入游戏"
+					stop
+			else:
+				message "&b[VPoints] &a请输入需要兑换的通道序号"
+				stop
+		else if sender has permission "vpoints.admin":
+			if arg 1 is "add":
+				if arg 2 is set:
+					if {VPoints::player::%arg-2%::*} is set:
+						if arg 3 is set:
+							set {_t} to arg 3
+							set {_t} to {_t} parsed as integer
+							if {_t} is not set:
+								message "&b[VPoints] &a请输入一个整数"
+								stop
+							else:
+								add {_t} to {VPoints::ups::%arg-2%::ucount}
+								message "&b[VPoints] &6成功给予玩家 %arg-2% &f%{_t}%&6 次兑换次数 该玩家现在的额外兑换次数为: %{VPoints::ups::%arg-2%::ucount}%"
+								message "&b[VPoints] &7上限次数将在该玩家下一次进入游戏后刷新"
+								stop
+						else:
+							message "&b[VPoints] &6/vp %arg-1% %arg-2% &c&n<数量>"
+							stop
+					else:
+						message "&b[VPoints] &6/vp %arg-1% &c&n<玩家>&6 ..."
+						stop
+				else:
+					message "&b[VPoints] &6不存在该玩家..."
+					stop
+			else if arg 1 is "rem":
+				if arg 2 is set:
+					if {VPoints::player::%arg-2%::*} is set:
+						if arg 3 is set:
+							set {_t} to arg 3
+							set {_t} to {_t} parsed as integer
+							if {_t} is not set:
+								message "&b[VPoints] &a请输入一个整数"
+								stop
+							else:
+								if {_t} <= {VPoints::ups::%arg-2%::ucount}:
+									remove {_t} from {VPoints::ups::%arg-2%::ucount}
+									message "&b[VPoints] &6成功移除玩家 %arg-2% &f%{_t}%&6 次兑换次数 该玩家现在的额外兑换次数为: %{VPoints::ups::%arg-2%::ucount}%"
+									stop
+								else:
+									message "&b[VPoints] &6玩家 %arg-2% 剩余的额外次数为 %{VPoints::ups::%arg-2%::ucount}% 不足以扣除 %{_t}% 次"
+									stop
+						else:
+							message "&b[VPoints] &6/vp %arg-1% %arg-2% &c&n<数量>"
+							stop
+					else:
+						message "&b[VPoints] &6不存在该玩家..."
+						stop
+				else:
+					message "&b[VPoints] &6/vp %arg-1% &c&n<玩家>&6 ..."
+					stop
+			else if arg 1 is "see":
+				if arg 2 is set:
+					message "&b[VPoints] &6玩家 %arg-2% 本日剩余的兑换次数: &6%{VPoints::player::%arg-2%::count}%/%{VPoints::player::%arg-2%::pcount}% (额外上限:%{VPoints::ups::%arg-2%::ucount}%)"
+					stop
+				else:
+					message "&b[VPoints] &6/vp %arg-1% &c&n<玩家>"
+					stop
+			else if arg 1 is "reload":
+				VPoints_UnLoad()
+				VPoints_Load()
+				message "&b[VPoints] &6插件重载成功"
+			else if arg 1 is "reloadplayers":
+				delete {VPoints::player::*}
+				send "&b[VPoints] 玩家点券兑换次数已重置" to sender
+				send "&b>> 玩家重新进入游戏后即可刷新次数" to sender	
+		else:
+			message "&b[VPoints] &a错误的指令 请使用/vp help查询帮助"
+			stop
+every 1 minute:
+	set {_hour} to time "HH" in now
+	set {_min} to time "mm" in now
+	if {_hour} = 1:
+		if {_min} = 0:
+			delete {VPoints::player::*}
+			send "&b[VPoints] 玩家点券兑换次数已重置" to console
+			send "&b>> 玩家重新进入游戏后即可刷新次数" to console
